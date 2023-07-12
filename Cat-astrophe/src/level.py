@@ -1,17 +1,42 @@
 from support import import_csv_layout, import_cut_graphics
-from level_settings import tile_size, screen_height, screen_width
+from level_settings import tile_size, screen_height, screen_width, map_height
 from tiles import Tile, StaticTile, AnimatedTile, Life, Palm
-from enemy import Enemy, Obstacle
+from enemy import Enemy, Obstacle, Explotion
 from decoration import Sky, Water, Clouds
 from player import Player
+from game_data import levels
+from ui import Timer
 import pygame
 
 class Level:
-    def __init__(self,level_data,surface,change_treats,change_health,cur_health,max_health):
+    def __init__(self,current_level,surface,create_overworld,game_over,change_treats,change_health,change_score,cur_health,max_health,pause):
 
         self.display_surface = surface
         self.world_shift = 0
-        self.current_x = None
+
+        self.paused = pause
+        self.time = Timer(self.display_surface, (600,25))
+        self.time_up = False
+
+        self.create_overworld = create_overworld
+        self.current_level = current_level
+        level_data = levels[self.current_level]
+        self.new_max_level = level_data['unlock']
+        self.game_over = game_over
+
+        self.cur_score = 0
+
+        #audio
+        self.treat_sound = pygame.mixer.Sound('assets/sounds/effects/crunch.wav')
+        self.explosion_sound = pygame.mixer.Sound('assets/sounds/effects/explode.wav')
+        self.extra_life_sound = pygame.mixer.Sound('assets/sounds/effects/life.wav')
+        self.game_over_sound = pygame.mixer.Sound('assets/sounds/effects/game_over.wav')
+        self.level_completed_sound = pygame.mixer.Sound('assets/sounds/effects/level_completed.wav')
+
+        #score
+        self.score_menu = pygame.image.load("assets/images/score/score_menu.png").convert_alpha()
+        self.scores_button = pygame.image.load("assets/images/score/scores_button.png").convert_alpha()
+        self.continue_option = pygame.image.load("assets/images/pause/continue.png").convert_alpha()
 
         #player
         player_layout = import_csv_layout(level_data['player'])
@@ -24,6 +49,7 @@ class Level:
         self.current_health = cur_health
         self.max_health = max_health
         self.change_health = change_health
+        self.change_score = change_score
 
         #terrain
         terrain_layout = import_csv_layout(level_data['terrain'])
@@ -48,6 +74,10 @@ class Level:
         #enemies
         enemy_layout = import_csv_layout(level_data['enemies'])
         self.enemy_sprites = self.create_tile_group(enemy_layout, 'enemies')
+        self.enemy_bullets = pygame.sprite.Group()
+
+        #explotions
+        self.explosions = pygame.sprite.Group()
 
         #constraints
         constraint_layout = import_csv_layout(level_data['constraints'])
@@ -65,7 +95,7 @@ class Level:
         horizon = 7
         self.sky = Sky(horizon)
         level_width = len(terrain_layout[0]) * tile_size
-        self.water = Water(screen_height - 40, level_width)
+        self.water = Water(map_height - 40, level_width)
         self.clouds = Clouds(400,level_width,20)
     
     def create_tile_group(self,layout,type):
@@ -123,10 +153,11 @@ class Level:
                     sprite = Player((x,y),change_health)
                     self.player.add(sprite)
     
-    def enemy_constraints_collision(self):
-        for enemy in self.enemy_sprites.sprites():
+    
+    def enemy_constraints_collision(self,enemy_positions):
+         for enemy, enemy_pos in zip(self.enemy_sprites.sprites(), enemy_positions):
             if pygame.sprite.spritecollide(enemy,self.constraint_sprites,False):
-                enemy.reverse()
+                enemy.reverse(self.enemy_bullets,enemy_pos)
     
     def obstacle_constraints_collision(self):
         for obstacle in self.obstacle_sprites.sprites():
@@ -177,30 +208,59 @@ class Level:
     def check_treat_collisions(self):
         collided_treat = pygame.sprite.spritecollide(self.player.sprite,self.treat_sprites,True)
         if collided_treat:
+            self.treat_sound.play()
             for treat in collided_treat:
                 self.change_treats(1)
+                self.cur_score = self.change_score(5)
 
     def check_enemy_collisions(self):
         enemy_collisions = pygame.sprite.spritecollide(self.player.sprite,self.enemy_sprites,False)
         obstacle_collisions = pygame.sprite.spritecollide(self.player.sprite,self.obstacle_sprites,False)
-        if enemy_collisions or obstacle_collisions:
-            self.player.sprite.get_damage()
-        pygame.sprite.groupcollide(self.enemy_sprites, self.bullets, True, True)
-        # pygame.sprite.groupcollide(self.obstacle_sprites, self.bullets, True, True)
+        enemy_bullet_collisions = pygame.sprite.spritecollide(self.player.sprite,self.enemy_bullets,False)
+
+        if enemy_collisions or obstacle_collisions or enemy_bullet_collisions:
+            self.current_health = self.player.sprite.get_damage(self.current_health)
+            if obstacle_collisions:
+                self.explosion_sound.play()
+                for obstacle in obstacle_collisions:
+                    explotion = Explotion(obstacle.rect.center, 'assets/images/obstacle/explosion', 0.5)
+                    self.explosions.add(explotion)
+                    obstacle.kill()
+
+        for enemy in self.enemy_sprites:
+            bullet_collisions = pygame.sprite.spritecollide(enemy, self.bullets, True)
+            if bullet_collisions:
+                self.explosion_sound.play()
+                explotion = Explotion(enemy.rect.center, 'assets/images/enemies/shark/explosion', 0.5)
+                self.explosions.add(explotion)
+                enemy.kill()
+                self.cur_score = self.change_score(10)
+        pygame.sprite.groupcollide(self.enemy_bullets, self.bullets, True, True)
 
     def check_life_collisions(self):
         
-        extra_life_collisions = pygame.sprite.spritecollide(self.player.sprite, self.extralife_sprites, True)
-        if extra_life_collisions: #and self.current_health < self.max_health (no me carga la vida con este if statement)
-            #incluso en get damage, con change_health, el cur health que le paso sigue siendo 3, ese es el problema.
+        extra_life_collisions = pygame.sprite.spritecollide(self.player.sprite, self.extralife_sprites, False)
+        if extra_life_collisions and self.current_health < self.max_health:
+            self.extra_life_sound.play()
             for life in extra_life_collisions:
-                self.change_health(1)
+                self.current_health = self.change_health(1)
+                life.kill()
 
-    def death(self):
-        pass
+    def check_death(self):
+        if self.player.sprite.rect.top > screen_height or self.current_health == 0 or self.time_up:
+            self.game_over_sound.play()
+            self.game_over()
     
-    def win(self):
-        pass
+    def check_win(self):
+        if len(self.treat_sprites) == 0 and len(self.enemy_sprites) == 0:
+            self.level_completed_sound.play()
+            self.time.pause()
+            elapsed_seconds = self.time.get_elapsed_time()
+            remaining_seconds = 60 - elapsed_seconds
+            
+            self.cur_score = self.change_score(remaining_seconds * 100)
+            
+            self.create_overworld(self.current_level,self.new_max_level)
     
     def run(self):
 
@@ -217,16 +277,25 @@ class Level:
         self.grass_sprites.draw(self.display_surface)
         self.grass_sprites.update(self.world_shift)
 
+        self.enemy_bullets.draw(self.display_surface)
+        self.enemy_bullets.update()
         self.enemy_sprites.draw(self.display_surface)
+        enemy_positions = []
+        for enemy in self.enemy_sprites:
+            enemy_pos = enemy.rect.center
+            enemy_positions.append(enemy_pos)
         self.enemy_sprites.update(self.world_shift)
         self.constraint_sprites.update(self.world_shift)
-        self.enemy_constraints_collision()
+        self.enemy_constraints_collision(enemy_positions)
 
         self.obstacle_sprites.draw(self.display_surface)
         self.obstacle_sprites.update(self.world_shift)
         self.obstacle_constraint_sprites.update(self.world_shift)
         self.obstacle_constraints_collision()
 
+        self.explosions.draw(self.display_surface)
+        self.explosions.update(self.world_shift)
+        
         self.treat_sprites.draw(self.display_surface)
         self.treat_sprites.update(self.world_shift)
 
@@ -246,5 +315,15 @@ class Level:
         self.check_enemy_collisions()
         self.check_life_collisions()
 
+        self.check_death()
+        self.check_win()
+
         self.water.draw(self.display_surface,self.world_shift)
+
+        self.paused()
+        self.time.draw()
+        self.time.update()
+        self.time_up = self.time.time_up()
+
+        return self.current_level, self.cur_score
         

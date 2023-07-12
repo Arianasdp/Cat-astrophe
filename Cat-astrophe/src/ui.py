@@ -1,5 +1,4 @@
 import pygame
-from level_settings import screen_width,screen_height
 
 class UI:
     def __init__(self,surface):
@@ -34,3 +33,47 @@ class UI:
         treat_amount_surf = self.font.render(str(amount),False,'#33323d')
         treat_amount_rect = treat_amount_surf.get_rect(midleft = (self.treat_rect.right + 4,self.treat_rect.centery))
         self.display_surface.blit(treat_amount_surf,treat_amount_rect)
+
+    def show_score(self,amount,pos):
+        score = self.font.render(f'score: {str(amount)}',False,'#33323d')
+        self.display_surface.blit(score,pos)
+
+
+class Timer:
+    def __init__(self, surface, pos):
+
+        self.font = pygame.font.Font('assets/images/ui/ARCADEPI.ttf', 36)
+        self.start_time = pygame.time.get_ticks()
+        self.elapsed_time = 0
+        self.display_surface = surface
+        self.pos = pos
+        self.paused = False
+        
+    def update(self):
+        if not self.paused:
+            self.elapsed_time = (pygame.time.get_ticks() - self.start_time) // 1000
+    
+    def get_elapsed_time(self):
+        return self.elapsed_time
+    
+    def time_up(self):
+        time_up = False
+        if self.elapsed_time >= 60:
+            time_up = True
+        return time_up
+    
+    def pause(self):
+        self.paused = True
+    
+    def unpause(self):
+        self.paused = False
+
+    def get_formatted_time(self):
+        minutes = self.elapsed_time // 60
+        seconds = self.elapsed_time % 60
+        return f"{minutes:02}:{seconds:02}"
+
+    def draw(self):
+        timer_text = self.get_formatted_time()
+        timer_surface = self.font.render(timer_text, True, '#33323d')
+        self.display_surface.blit(timer_surface, self.pos)

@@ -1,6 +1,7 @@
 import pygame 
 from support import import_folder
-from level_settings import screen_width
+from level_settings import screen_width, screen_height
+from math import sin
 
 class Player(pygame.sprite.Sprite):
     def __init__(self,pos,change_health):
@@ -25,8 +26,15 @@ class Player(pygame.sprite.Sprite):
 
         self.change_health = change_health
         self.invincible = False
-        self.invincibility_duration = 700
+        self.invincibility_duration = 800
         self.hurt_time = 0
+
+        #audio
+        self.jump_sound = pygame.mixer.Sound('assets/sounds/effects/jump.wav')
+        self.jump_sound.set_volume(0.5)
+        self.roar_sound = pygame.mixer.Sound('assets/sounds/effects/roar.wav')
+        self.roar_sound.set_volume(0.7)
+        self.damage_sound = pygame.mixer.Sound('assets/sounds/effects/hit.wav')
 
     def import_character_assets(self):
         character_path = 'assets/images/cat/'
@@ -49,7 +57,12 @@ class Player(pygame.sprite.Sprite):
         else:
             flipped_image = pygame.transform.flip(image, True, False)
             self.image = flipped_image
-
+        
+        if self.invincible:
+            alpha = self.wave_value()
+            self.image.set_alpha(alpha)
+        else:
+            self.image.set_alpha(255)
 
     def get_status(self):
         if self.direction.y < 0:
@@ -78,9 +91,11 @@ class Player(pygame.sprite.Sprite):
             self.direction.x = 0
 
         if keys[pygame.K_UP] and self.on_ground:
+            self.jump_sound.play()
             self.jump()
 
         if keys[pygame.K_SPACE] and not self.is_attacking:
+            self.roar_sound.play()
             self.attack(bullets,player_pos,self.facing_right)
         
         if not keys[pygame.K_SPACE]:
@@ -96,20 +111,28 @@ class Player(pygame.sprite.Sprite):
     
     def attack(self, bullets,player_pos, facing_right):
         self.is_attacking = True
-        bullet = Bullet(player_pos[0],player_pos[1],facing_right)
+        bullet = Bullet(player_pos[0],player_pos[1],facing_right,"assets\images\proyectiles\player's")
         bullets.add(bullet)
     
-    def get_damage(self):
+    def get_damage(self,cur_health):
         if not self.invincible:
-            self.change_health(-1)
+            self.damage_sound.play()
+            cur_health = self.change_health(-1)
             self.invincible = True
             self.hurt_time = pygame.time.get_ticks()
+        return cur_health
     
     def invincibility_timer(self):
         if self.invincible:
             current_time = pygame.time.get_ticks()
             if current_time - self.hurt_time >= self.invincibility_duration:
                 self.invincible = False
+    
+    def wave_value(self):
+        value = sin(pygame.time.get_ticks())
+        retorno = 0
+        if value >= 0: retorno = 255
+        return retorno
 
     def update(self,bullets,player_pos):
         self.get_input(bullets,player_pos)
@@ -118,16 +141,19 @@ class Player(pygame.sprite.Sprite):
         self.invincibility_timer()
 
 class Bullet(pygame.sprite.Sprite):
-    def __init__(self, pos_x,pos_y,facing_right):
+    def __init__(self, pos_x,pos_y,facing_right,path):
         super().__init__()
 
-        path = "assets\images\proyectiles\player's"
         self.frames = import_folder(path)
         self.frame_index = 0
         self.animation_speed = 0.15
         self.image = self.frames[self.frame_index]
         self.rect = self.image.get_rect(center = (pos_x,pos_y))
-        self.facing_right = facing_right       
+        self.facing_right = facing_right  
+        self.pos_x = pos_x
+        self.pos_y = pos_y     
+
+        # self.rect.inflate_ip(-40, -40)
 
     def animate(self):
 
@@ -155,4 +181,5 @@ class Bullet(pygame.sprite.Sprite):
             self.rect.x -= 5
             if self.rect.x <= 0:
                 self.kill()
+        
 		

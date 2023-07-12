@@ -4,3 +4,4 @@ tile_size = 64
 screen_height = vertical_tile_number * tile_size
 screen_width = 1200 
 map_width = 1920
+map_height = vertical_tile_number * tile_size
