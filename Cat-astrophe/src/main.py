@@ -4,6 +4,8 @@ from overworld import Overworld
 from level import Level
 from config import *
 from ui import UI
+from levels_loaded import load_saved_level, save_current_level
+from game_data import levels
 
 class Game:
 	def __init__(self) -> None:
@@ -55,6 +57,15 @@ class Game:
 
 		#user interface
 		self.ui = UI(screen)
+
+		saved_level = load_saved_level()
+
+		if saved_level is not None:
+			current_level = saved_level['level']
+		else:
+			current_level = 0
+
+		self.cur_level = current_level
 	
 	def create_intro(self):
 
@@ -198,10 +209,11 @@ while True:
 
 	for event in pygame.event.get():
 			if event.type == pygame.QUIT:
+				save_current_level(levels[cur_level])
 				pygame.quit()
 				sys.exit()
 
-	game.run()
+	cur_level = game.run()
 
 	pygame.display.update()
 	
